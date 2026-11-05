@@ -1,0 +1,9 @@
+# Give the lp group read/write access to Zebra USB printer devices.
+# Install:
+#   sudo cp 99-zebra-printer.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#
+# Zebra's USB vendor ID is 0a5f. The usblp driver creates /dev/usb/lpN
+# under the usbmisc subsystem; the vendor ID is on the USB parent.
+SUBSYSTEM=="usbmisc", KERNEL=="lp[0-9]*", SUBSYSTEMS=="usb", ATTRS{idVendor}=="0a5f", GROUP="lp", MODE="0660"

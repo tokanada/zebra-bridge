@@ -1,0 +1,26 @@
+# Zebra BLE-to-USB bridge configuration.
+#
+# Copy this file to one of these locations (first one found wins):
+#   ./zebra-bridge.conf
+#   /boot/firmware/zebra-bridge.conf   (Raspberry Pi OS Bookworm)
+#   /boot/zebra-bridge.conf            (older Raspberry Pi OS)
+#   /etc/zebra-bridge.conf
+#
+# Each printer/Pi must have a different BLE name. Rock finds printers by
+# advertised name, so two bridges with the same name will conflict.
+
+[bridge]
+# Unique BLE name for this printer.
+name = ZD421-Checkin
+
+# Unique serial number exposed by the Device Information Service.
+serial = ZD421-CHECKIN-0001
+
+# USB printer device. Defaults to /dev/usb/lp0.
+# printer = /dev/usb/lp0
+
+# Optional adapter hint if the host has more than one Bluetooth adapter.
+# adapter = hci0
+
+# INFO is quiet; DEBUG logs every BLE chunk.
+# log_level = INFO

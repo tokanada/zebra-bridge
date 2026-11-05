@@ -1,0 +1,12 @@
+# Runtime logs
+*.log
+*.log.pre-*
+
+# Backups
+backup/
+*.bak
+*.bak-*
+
+# Python
+__pycache__/
+*.pyc
