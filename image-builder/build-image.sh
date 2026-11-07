@@ -211,5 +211,13 @@ log "Writing output"
 mv -f "$RAW_IMAGE" "$OUTPUT_DIR/$OUTPUT_NAME"
 chmod 0644 "$OUTPUT_DIR/$OUTPUT_NAME"
 ( cd "$OUTPUT_DIR" && sha256sum "$OUTPUT_NAME" > "$OUTPUT_NAME.sha256" )
+# The container runs as root, so the bind-mounted output directory's owner is
+# the host user. Hand the artifacts back to that uid:gid; otherwise a build on
+# another machine leaves root-owned files that need sudo to read or move.
+OUT_OWNER="$(stat -c '%u:%g' "$OUTPUT_DIR" 2>/dev/null || true)"
+if [ -n "$OUT_OWNER" ]; then
+    chown "$OUT_OWNER" "$OUTPUT_DIR/$OUTPUT_NAME" \
+        "$OUTPUT_DIR/$OUTPUT_NAME.sha256" 2>/dev/null || true
+fi
 log "Done: $OUTPUT_DIR/$OUTPUT_NAME"
 cat "$OUTPUT_DIR/$OUTPUT_NAME.sha256"

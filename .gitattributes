@@ -1,0 +1,18 @@
+# Normalize line endings on checkout.  The Raspberry Pi firmware and the
+# shell scripts require LF; CRLF in cmdline.txt/config.txt can break boot
+# parsing, and CRLF in *.sh produces "bad interpreter" errors.
+* text=auto
+
+*.sh      text eol=lf
+*.py      text eol=lf
+*.service text eol=lf
+*.rules   text eol=lf
+Dockerfile text eol=lf
+
+image-builder/config/*    text eol=lf
+zebra-bridge.conf.example text eol=lf
+*.sha256                  text eol=lf
+
+# Build artifacts are binary and are never committed.
+*.img    binary
+*.img.xz binary

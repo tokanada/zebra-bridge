@@ -584,6 +584,7 @@ image-builder/
 ├── Dockerfile
 ├── build-image.sh          # runs on x86_64 build host / in container
 ├── provision.sh            # runs inside the arm64 chroot under qemu
+├── verify-image.py         # root-free post-build inspection of the .img
 └── config/
     ├── config.txt
     ├── cmdline.txt
