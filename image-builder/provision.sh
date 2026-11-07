@@ -213,8 +213,13 @@ update-initramfs -c -k all
 # copy and the overlayroot hook, otherwise the image silently boots writable.
 [ -s /boot/firmware/initramfs8 ] \
     || { echo "initramfs8 was not installed into /boot/firmware" >&2; exit 1; }
-lsinitramfs /boot/firmware/initramfs8 | grep -q 'init-bottom/overlayroot' \
-    || { echo "initramfs8 has no overlayroot hook" >&2; exit 1; }
+# Do not use "grep -q" here: it exits on the first match, lsinitramfs then dies
+# with SIGPIPE, and "set -o pipefail" turns that into a false failure.
+if ! lsinitramfs /boot/firmware/initramfs8 \
+        | grep -F 'scripts/init-bottom/overlayroot' >/dev/null; then
+    echo "initramfs8 has no overlayroot hook" >&2
+    exit 1
+fi
 grep -q 'overlayroot=tmpfs' /boot/firmware/cmdline.txt \
     || { echo "cmdline.txt is missing overlayroot=tmpfs" >&2; exit 1; }
 

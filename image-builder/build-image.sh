@@ -21,7 +21,9 @@ IMAGE_SHA256="${RPI_IMAGE_SHA256:-6ac3a10a1f144c7e9d1f8e568d75ca809288280a593eb6
 OUTPUT_NAME="zebra-bridge-pi-zero2w.img"
 
 IMAGE_FILE="$WORK_DIR/$(basename "$IMAGE_URL")"
-RAW_IMAGE="$WORK_DIR/$OUTPUT_NAME"
+# Assemble the raw image directly in the output directory so the final rename
+# is a no-op on the same filesystem and we never hold two full copies.
+RAW_IMAGE="$OUTPUT_DIR/.$OUTPUT_NAME.partial"
 ROOT_MNT="$WORK_DIR/root"
 LOOP_DEV=""
 ROOT_PART=""
@@ -40,6 +42,8 @@ cleanup() {
     [ -n "${ROOT_MNT:-}" ] && mountpoint -q "$ROOT_MNT/boot/firmware" && umount "$ROOT_MNT/boot/firmware"
     [ -n "${ROOT_MNT:-}" ] && mountpoint -q "$ROOT_MNT" && umount "$ROOT_MNT"
     [ -n "${LOOP_DEV:-}" ] && losetup -d "$LOOP_DEV"
+    # Drop the partial image on failure; on success it has been renamed.
+    [ -n "${RAW_IMAGE:-}" ] && rm -f "$RAW_IMAGE"
 }
 trap cleanup EXIT INT TERM
 
@@ -204,7 +208,8 @@ losetup -d "$LOOP_DEV"
 LOOP_DEV=""
 
 log "Writing output"
-install -m 0644 "$RAW_IMAGE" "$OUTPUT_DIR/$OUTPUT_NAME"
+mv -f "$RAW_IMAGE" "$OUTPUT_DIR/$OUTPUT_NAME"
+chmod 0644 "$OUTPUT_DIR/$OUTPUT_NAME"
 ( cd "$OUTPUT_DIR" && sha256sum "$OUTPUT_NAME" > "$OUTPUT_NAME.sha256" )
 log "Done: $OUTPUT_DIR/$OUTPUT_NAME"
 cat "$OUTPUT_DIR/$OUTPUT_NAME.sha256"
