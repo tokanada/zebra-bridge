@@ -10,13 +10,20 @@ self-heals when bluetoothd restarts and can be kept alive by run.sh without
 systemd.
 
 Configuration file (first one found wins):
-  ./zebra-bridge.conf
   /boot/firmware/zebra-bridge.conf   (Raspberry Pi OS Bookworm boot partition)
   /boot/zebra-bridge.conf            (older Raspberry Pi OS boot partition)
   /etc/zebra-bridge.conf
+  ./zebra-bridge.conf
+
+The boot partition locations come first so an operator can edit the file on
+the FAT32 bootfs partition after flashing the SD card.  Use --config or
+ZEBRA_BRIDGE_CONFIG for development overrides.
 
 The [bridge] section supports:
   name, serial, printer, adapter, log_level
+
+Files edited on Windows or macOS may contain a UTF-8 BOM and CRLF line
+endings; both are handled deliberately below.
 
 Environment variables override the configuration file:
   ZEBRA_BRIDGE_CONFIG   explicit config file path
@@ -94,10 +101,10 @@ CONFIG_KEYS = ("name", "serial", "printer", "adapter", "log_level")
 def default_config_candidates():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     return [
-        os.path.join(script_dir, "zebra-bridge.conf"),
         "/boot/firmware/zebra-bridge.conf",
         "/boot/zebra-bridge.conf",
         "/etc/zebra-bridge.conf",
+        os.path.join(script_dir, "zebra-bridge.conf"),
     ]
 
 
@@ -125,14 +132,27 @@ def load_config(explicit=None):
         return {}, None
 
     parser = configparser.ConfigParser(
-        interpolation=None, inline_comment_prefixes=("#", ";")
+        interpolation=None,
+        inline_comment_prefixes=("#", ";"),
+        strict=False,
     )
     try:
-        read_files = parser.read(path)
+        # utf-8-sig strips a Windows/metadata BOM; reading the whole file lets
+        # us normalise CRLF (and old-Mac CR) before configparser sees it.
+        with open(path, "r", encoding="utf-8-sig", newline="") as handle:
+            text = handle.read()
+        text = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+        parser.read_string(text, source=path)
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(
+            f"Configuration {path} is not valid UTF-8: {exc}"
+        ) from exc
+    except configparser.MissingSectionHeaderError as exc:
+        raise RuntimeError(
+            f"Configuration {path} is missing the [{CONFIG_SECTION}] section: {exc}"
+        ) from exc
     except (configparser.Error, OSError) as exc:
         raise RuntimeError(f"Could not read configuration {path}: {exc}") from exc
-    if not read_files:
-        raise RuntimeError(f"Could not read configuration {path}")
     if not parser.has_section(CONFIG_SECTION):
         raise RuntimeError(
             f"Configuration {path} is missing the [{CONFIG_SECTION}] section"
@@ -143,7 +163,7 @@ def load_config(explicit=None):
         raw = parser.get(CONFIG_SECTION, key, fallback=None)
         if raw is None:
             continue
-        value = raw.strip()
+        value = raw.replace("\r", "").strip()
         if value:
             values[key] = value
     return values, path
@@ -741,7 +761,11 @@ def check_bluetooth_config():
     path = "/etc/bluetooth/main.conf"
     try:
         parser = configparser.ConfigParser()
-        parser.read(path)
+        with open(path, "r", encoding="utf-8-sig", newline="") as handle:
+            parser.read_string(
+                handle.read().replace("\r\n", "\n").replace("\r", "\n"),
+                source=path,
+            )
         value = parser.get("General", "ReverseServiceDiscovery", fallback="")
     except Exception as exc:
         LOG.debug("Could not read %s: %s", path, exc)

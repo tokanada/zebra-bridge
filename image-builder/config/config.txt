@@ -1,0 +1,47 @@
+# Zebra BLE-to-USB bridge appliance -- Raspberry Pi Zero 2 W
+# Installed as /boot/firmware/config.txt.  Keep this file on one line per
+# directive; config.txt has no relation to cmdline.txt.
+
+# 64-bit kernel (the base image is 64-bit Bookworm Lite).
+arm_64bit=1
+
+# OverlayFS is implemented in the initramfs.  Without this the firmware will
+# not load initramfs8, and overlayroot=tmpfs in cmdline.txt will be ignored.
+auto_initramfs=1
+
+# Headless: no display overscan compensation needed.
+disable_overscan=1
+
+# 1. USB host mode on the USB test pads (PP22/PP23).
+# The printer is wired directly to D+/D-, so the OTG ID pin is not grounded.
+# Force the DesignWare USB2 controller into permanent host mode in software.
+dtoverlay=dwc2,dr_mode=host
+
+# 2. Disable Wi-Fi, keep Bluetooth.
+# The Pi Zero 2 W shares the Cypress/Synaptics radio between Wi-Fi and BT.
+# disable-wifi disables only the WLAN function; the BT UART stays active.
+dtoverlay=disable-wifi
+
+# 3. Headless / no audio / no camera / no display probing.
+dtparam=audio=off
+camera_auto_detect=0
+display_auto_detect=0
+max_framebuffers=0
+disable_fw_kms_setup=1
+gpu_mem=16
+
+# 4. Fast boot.
+boot_delay=0
+disable_splash=1
+disable_poe_fan=1
+initial_turbo=30
+
+# 5. BCM2835 hardware watchdog.  The hardware maximum is just under 16s;
+# systemd's RuntimeWatchdogSec must be <= 15s (see system.conf.d drop-in).
+dtparam=watchdog=on
+
+# Optional recovery console over GPIO 14/15 (pins 8/10).
+# This moves Bluetooth onto the mini UART, which is slower and has no flow
+# control.  Validate BLE throughput before shipping an image with these on.
+#enable_uart=1
+#dtoverlay=miniuart-bt

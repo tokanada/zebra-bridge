@@ -10,7 +10,6 @@ NAME="${ZEBRA_BRIDGE_NAME:-ZD421-Emulation}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
 USER_NAME="${USER:-$(id -un)}"
 PIDFILE="${ZEBRA_BRIDGE_PIDFILE:-$RUNTIME_DIR/zebra-bridge.pid}"
-LOGFILE="${ZEBRA_BRIDGE_LOG:-$SCRIPT_DIR/zebra-bridge.log}"
 LOCKFILE="${ZEBRA_BRIDGE_LOCK:-$RUNTIME_DIR/zebra-bridge.lock}"
 RESTART_DELAY="${ZEBRA_BRIDGE_RESTART_DELAY:-3}"
 MAX_LOG_BYTES="${ZEBRA_BRIDGE_MAX_LOG_BYTES:-1048576}"
@@ -19,8 +18,15 @@ LOG_LEVEL="${ZEBRA_BRIDGE_LOG_LEVEL:-}"
 CONFIG_FILE=""
 USE_SG=0
 
+# The appliance root is read-only (OverlayFS/tmpfs).  Never default to a log
+# file under the script directory: /opt/zebra-bridge is on the read-only lower
+# filesystem and would fill the SD card on a writable system.
+LOGFILE="${ZEBRA_BRIDGE_LOG:-$RUNTIME_DIR/zebra-bridge.log}"
+
 export ZEBRA_BRIDGE_LOCK="$LOCKFILE"
 export ZEBRA_BRIDGE_RESTART_DELAY="$RESTART_DELAY"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONUNBUFFERED=1
 
 usage() {
     cat <<EOF
@@ -34,16 +40,16 @@ Usage: $(basename "$0") {start|stop|restart|status|logs|check|run}
   check    Validate BlueZ, printer access, and dependencies
   run      Run in the foreground (Ctrl-C to stop)
 
-Configuration:
-  ./zebra-bridge.conf, /boot/firmware/zebra-bridge.conf,
-  /boot/zebra-bridge.conf, or /etc/zebra-bridge.conf
+Configuration (first one found wins):
+  /boot/firmware/zebra-bridge.conf, /boot/zebra-bridge.conf,
+  /etc/zebra-bridge.conf, or ./zebra-bridge.conf
   [bridge] keys: name, serial, printer, adapter, log_level
 
 Environment (override the file):
   ZEBRA_BRIDGE_CONFIG    explicit config file path
   ZEBRA_BRIDGE_PRINTER   printer device (default: /dev/usb/lp0)
   ZEBRA_BRIDGE_NAME      advertised BLE name (default: ZD421-Emulation)
-  ZEBRA_BRIDGE_LOG       log path (default: $SCRIPT_DIR/zebra-bridge.log)
+  ZEBRA_BRIDGE_LOG       log path (default: \$XDG_RUNTIME_DIR/zebra-bridge.log)
   ZEBRA_BRIDGE_PIDFILE   PID file (default: \$XDG_RUNTIME_DIR/zebra-bridge.pid)
   ZEBRA_BRIDGE_LOCK      lock file (default: \$XDG_RUNTIME_DIR/zebra-bridge.lock)
   ZEBRA_BRIDGE_RESTART_DELAY  seconds between restarts (default: 3)

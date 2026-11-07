@@ -1,3 +1,9 @@
+# Build output
+dist/
+*.img
+*.img.xz
+*.img.sha256
+
 # Runtime logs
 *.log
 *.log.pre-*

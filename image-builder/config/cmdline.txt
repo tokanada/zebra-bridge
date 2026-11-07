@@ -1,0 +1,1 @@
+console=tty1 root=PARTUUID=__ROOT_PARTUUID__ rootfstype=ext4 rootwait ro fsck.mode=skip quiet loglevel=0 systemd.show_status=false logo.nologo vt.global_cursor_default=0 ipv6.disable=1

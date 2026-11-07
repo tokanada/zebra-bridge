@@ -1,0 +1,46 @@
+[Unit]
+Description=Zebra BLE-to-USB Printer Bridge
+Documentation=https://github.com/tokanada/zebra-bridge
+# hciuart attaches the Pi's Bluetooth UART; bluetoothd then owns the adapter.
+# systemd-udevd is needed for /dev/usb/lp* to exist.
+After=bluetooth.service hciuart.service systemd-udevd.service
+# Wants (not Requires): if Bluetooth fails on a cold boot the bridge still
+# starts and retries internally instead of failing the whole unit.
+Wants=bluetooth.service hciuart.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/zebra-bridge
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=TMPDIR=/run/zebra-bridge
+RuntimeDirectory=zebra-bridge
+RuntimeDirectoryMode=0755
+# Clear a persisted soft rfkill block before touching BlueZ.
+ExecStartPre=-/usr/sbin/rfkill unblock bluetooth
+ExecStart=/usr/bin/python3 /opt/zebra-bridge/zebra_bridge.py
+Restart=always
+RestartSec=2
+# The script already retries BlueZ registration internally; do not let
+# systemd's startup timeout kill it during a slow cold boot.
+TimeoutStartSec=infinity
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zebra-bridge
+
+# Hardening.  The bridge only needs the system D-Bus, /dev/usb/lp*, and its
+# runtime directory.  Do not add PrivateDevices=yes: it would hide the printer.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/zebra-bridge
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

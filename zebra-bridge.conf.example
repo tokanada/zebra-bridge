@@ -1,10 +1,13 @@
 # Zebra BLE-to-USB bridge configuration.
 #
 # Copy this file to one of these locations (first one found wins):
-#   ./zebra-bridge.conf
 #   /boot/firmware/zebra-bridge.conf   (Raspberry Pi OS Bookworm)
 #   /boot/zebra-bridge.conf            (older Raspberry Pi OS)
 #   /etc/zebra-bridge.conf
+#   ./zebra-bridge.conf                (local development; use --config instead)
+#
+# The bootfs partition is mounted read-only at runtime.  Edit this file by
+# mounting the SD card on a PC, then eject it safely.
 #
 # Each printer/Pi must have a different BLE name. Rock finds printers by
 # advertised name, so two bridges with the same name will conflict.
