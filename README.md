@@ -47,10 +47,15 @@ dist/zebra-bridge-pi-zero2w.img
 dist/zebra-bridge-pi-zero2w.img.sha256
 ```
 
+The image installs a patched BlueZ package: `image-builder/bluez/build-bluez-deb.sh`
+builds it into `dist/bluez/` using an arm64 Docker container, and
+`build-image.sh` stops if that package is missing.
+
 ```bash
 git clone https://github.com/tokanada/zebra-bridge.git
 cd zebra-bridge
 
+image-builder/bluez/build-bluez-deb.sh
 docker build -t zebra-bridge-image -f image-builder/Dockerfile .
 mkdir -p dist
 docker run --rm --privileged \
@@ -85,7 +90,9 @@ Bluetooth, watchdog, or service assertion fails.
 
 To build without Docker, run the same script as root on an x86_64 Linux host
 with `qemu-user-static`, `binfmt-support`, `util-linux`, `dosfstools`,
-`e2fsprogs`, `xz-utils`, and `curl` installed:
+`e2fsprogs`, `xz-utils`, and `curl` installed. The patched package must
+already exist in `dist/bluez/` (built with that script on any host with
+Docker):
 
 ```bash
 sudo RPI_IMAGE_URL=... RPI_IMAGE_SHA256=... image-builder/build-image.sh
@@ -244,6 +251,14 @@ sudo udevadm trigger
 ```
 
 ### BlueZ configuration
+
+Stock BlueZ 5.66 rejects 512-byte GATT writes with "Invalid Attribute Value
+Length (0x0d)", so jobs longer than one chunk don't print. Images include a
+patched package held with `apt-mark` (upstream fix: BlueZ commit 8bf3a4a265,
+included from BlueZ 5.70). For a manual install on an existing Pi, build the
+package, copy it over, and run
+`sudo apt install ./bluez_5.66-1+rpt2+deb12u2+zebra1_arm64.deb` then
+`sudo apt-mark hold bluez`.
 
 On a peripheral-only bridge, reverse service discovery can make iOS
 disconnect. Set this in `/etc/bluetooth/main.conf`:

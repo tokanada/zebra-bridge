@@ -23,9 +23,21 @@ DIST_DIR = os.path.normpath(
 )
 DEFAULT_IMAGE = os.path.join(DIST_DIR, "zebra-bridge-pi-zero2w.img")
 DEBUG_IMAGE = os.path.join(DIST_DIR, "zebra-bridge-pi-zero2w-debug.img")
+BLUEZ_PATCHED_VERSION = "5.66-1+rpt2+deb12u2+zebra1"
 
 failures = []
 passes = 0
+
+
+def dpkg_stanza(status_text, package):
+    """Return the dpkg status stanza for *package*, or "" if absent."""
+    if status_text is None:
+        return ""
+    target = f"Package: {package}"
+    for stanza in re.split(r"\n[ \t]*\n", status_text):
+        if target in stanza.splitlines():
+            return stanza.strip("\n")
+    return ""
 
 
 def run(cmd):
@@ -272,6 +284,19 @@ def main():
         "BlueZ reverse discovery disabled",
         ext_read(img, root_off, "/etc/bluetooth/main.conf"),
         "ReverseServiceDiscovery = false",
+    )
+    bluez_stanza = dpkg_stanza(
+        ext_read(img, root_off, "/var/lib/dpkg/status"), "bluez"
+    )
+    expect_in(
+        "patched BlueZ installed",
+        bluez_stanza,
+        f"Version: {BLUEZ_PATCHED_VERSION}",
+    )
+    expect_in(
+        "patched BlueZ held",
+        bluez_stanza,
+        "Status: hold ok installed",
     )
     expect_in(
         "hostname set",
