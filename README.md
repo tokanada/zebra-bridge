@@ -26,6 +26,7 @@ for manual testing on a normal Linux host.
 | `systemd/zebra-bridge.service` | Native systemd unit used by the appliance image |
 | `image-builder/Dockerfile` | Reproducible image-build container |
 | `image-builder/build-image.sh` | Downloads, provisions, and exports the `.img` |
+| `image-builder/verify-image.py` | Root-free post-build inspection of the `.img` |
 | `image-builder/provision.sh` | Runs inside the arm64 image chroot |
 | `image-builder/config/` | Boot, kernel, BlueZ, journald, and watchdog templates |
 | `tests/test_config_loading.py` | BOM/CRLF/priority tests for the config parser |
@@ -56,6 +57,27 @@ docker run --rm --privileged \
 The base image URL and SHA256 are variables at the top of
 `image-builder/build-image.sh`. Update them deliberately when moving to a
 newer Raspberry Pi OS release.
+
+To avoid re-downloading the base image between runs, persist `WORK_DIR`:
+
+```bash
+docker run --rm --privileged \
+    -v "$PWD/dist:/work/repo/dist" \
+    -v "$HOME/.cache/zebra-bridge-build:/work/work" -e WORK_DIR=/work/work \
+    zebra-bridge-image
+```
+
+Check the finished image on the build host without root, a loop device, or a
+mount:
+
+```bash
+python3 image-builder/verify-image.py
+sha256sum -c dist/zebra-bridge-pi-zero2w.img.sha256
+```
+
+The verifier reads both partitions straight out of the file (`mtools` for
+bootfs, `debugfs` for rootfs) and exits non-zero if any boot, OverlayFS,
+Bluetooth, watchdog, or service assertion fails.
 
 To build without Docker, run the same script as root on an x86_64 Linux host
 with `qemu-user-static`, `binfmt-support`, `util-linux`, `dosfstools`,
