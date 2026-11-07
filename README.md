@@ -14,6 +14,9 @@ for the **Raspberry Pi Zero 2 W**. The image is headless, read-only at runtime,
 and starts the bridge automatically with systemd. `run.sh` remains available
 for manual testing on a normal Linux host.
 
+The full engineering specification, build rationale, and acceptance criteria
+are in [`docs/zebrapi_runbook.md`](docs/zebrapi_runbook.md).
+
 ## Files
 
 | File | Purpose |
