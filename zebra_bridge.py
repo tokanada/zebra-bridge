@@ -322,7 +322,11 @@ class ZebraWriteCharacteristic(dbus.service.Object):
     def WriteValue(self, value, options):
         data = bytes(value)
         LOG.debug("BLE write: %d bytes", len(data))
-        write_to_printer(data)
+        if LOG.isEnabledFor(logging.DEBUG):
+            LOG.debug("BLE payload hex: %s", data.hex())
+            LOG.debug("BLE payload text: %r", data)
+        if not write_to_printer(data):
+            LOG.warning("BLE write not delivered to printer: %d bytes", len(data))
 
 
 class ZebraReadCharacteristic(dbus.service.Object):

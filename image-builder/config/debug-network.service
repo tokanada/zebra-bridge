@@ -1,0 +1,21 @@
+[Unit]
+Description=Zebra bridge debug Wi-Fi and SSH bootstrap
+Documentation=https://github.com/tokanada/zebra-bridge
+# Run after the bootfs is mounted but before NetworkManager or sshd starts.
+# Order after systemd-rfkill.service so its restore of a persisted soft block
+# cannot undo the rfkill unblock below.
+DefaultDependencies=no
+After=local-fs.target systemd-rfkill.service
+Before=network-pre.target NetworkManager.service ssh.service
+Wants=network-pre.target systemd-rfkill.service
+ConditionPathExists=/boot/firmware/zebra-bridge-debug.conf
+
+[Service]
+Type=oneshot
+# Clear a persisted soft rfkill block before NetworkManager touches wlan0.
+ExecStartPre=-/usr/sbin/rfkill unblock wifi
+ExecStart=/usr/bin/python3 /usr/local/sbin/zebra-bridge-debug-boot.py
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

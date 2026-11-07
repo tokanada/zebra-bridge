@@ -18,7 +18,14 @@ OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/dist}"
 WORK_DIR="${WORK_DIR:-/tmp/zebra-bridge-image}"
 IMAGE_URL="${RPI_IMAGE_URL:-https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz}"
 IMAGE_SHA256="${RPI_IMAGE_SHA256:-6ac3a10a1f144c7e9d1f8e568d75ca809288280a593eb6ca053e49b539f465a4}"
-OUTPUT_NAME="zebra-bridge-pi-zero2w.img"
+# "release" is the shipping appliance.  "debug" is a temporary image with
+# Wi-Fi, SSH, writable root, persistent journal, and DEBUG bridge logging.
+IMAGE_VARIANT="${IMAGE_VARIANT:-release}"
+if [ "$IMAGE_VARIANT" = "debug" ]; then
+    OUTPUT_NAME="zebra-bridge-pi-zero2w-debug.img"
+else
+    OUTPUT_NAME="zebra-bridge-pi-zero2w.img"
+fi
 
 IMAGE_FILE="$WORK_DIR/$(basename "$IMAGE_URL")"
 # Assemble the raw image directly in the output directory so the final rename
@@ -32,6 +39,11 @@ RESOLV_BAK="$WORK_DIR/resolv.conf.bak"
 
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+case "$IMAGE_VARIANT" in
+    release|debug) ;;
+    *) die "IMAGE_VARIANT must be 'release' or 'debug' (got '$IMAGE_VARIANT')" ;;
+esac
 
 cleanup() {
     set +e
@@ -48,39 +60,59 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 [ "$(id -u)" -eq 0 ] || die "must run as root (or with --privileged in Docker)"
-for cmd in curl xz sha256sum losetup partx mount chroot blkid qemu-aarch64-static; do
+HOST_ARCH="$(uname -m)"
+NEED_QEMU=1
+case "$HOST_ARCH" in
+    aarch64|arm64) NEED_QEMU=0 ;;
+esac
+for cmd in curl xz sha256sum losetup partx mount chroot blkid; do
     command -v "$cmd" >/dev/null 2>&1 || die "missing required command: $cmd"
 done
-[ -x /usr/bin/qemu-aarch64-static ] || die "qemu-aarch64-static is not installed"
+if [ "$NEED_QEMU" -eq 1 ]; then
+    command -v qemu-aarch64-static >/dev/null 2>&1 \
+        || die "missing required command: qemu-aarch64-static"
+    [ -x /usr/bin/qemu-aarch64-static ] || die "qemu-aarch64-static is not installed"
+fi
 [ -f "$CONFIG_DIR/config.txt" ] || die "missing $CONFIG_DIR/config.txt"
 [ -f "$CONFIG_DIR/cmdline.txt" ] || die "missing $CONFIG_DIR/cmdline.txt"
 [ -f "$SCRIPT_DIR/provision.sh" ] || die "missing $SCRIPT_DIR/provision.sh"
+if [ "$IMAGE_VARIANT" = "debug" ]; then
+    for f in debug-boot.conf debug-boot.py debug-network.service \
+             journald-persistent.conf NetworkManager-debug.conf ssh-debug.conf; do
+        [ -f "$CONFIG_DIR/$f" ] || die "missing $CONFIG_DIR/$f"
+    done
+fi
 
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR" "$ROOT_MNT"
 chmod 0755 "$ROOT_MNT"
 
-# qemu-user-static deliberately skips binfmt registration when it detects a
-# container, and binfmt_misc is often not mounted inside the container even
-# with --privileged.  Mount it and register aarch64 here; the registration is
-# a kernel-global property, so the host picks it up too.
-if [ ! -f /proc/sys/fs/binfmt_misc/status ]; then
-    mkdir -p /proc/sys/fs/binfmt_misc 2>/dev/null || true
-    mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true
-fi
-[ -f /proc/sys/fs/binfmt_misc/status ] \
-    || die "binfmt_misc is not available; run the container with --privileged"
+if [ "$NEED_QEMU" -eq 0 ]; then
+    # Native arm64 builder: chroot will run the image's binaries directly.
+    log "Builder is $HOST_ARCH; qemu/binfmt is not required"
+else
+    # qemu-user-static deliberately skips binfmt registration when it detects
+    # a container, and binfmt_misc is often not mounted inside the container
+    # even with --privileged.  Mount it and register aarch64 here; the
+    # registration is a kernel-global property, so the host picks it up too.
+    if [ ! -f /proc/sys/fs/binfmt_misc/status ]; then
+        mkdir -p /proc/sys/fs/binfmt_misc 2>/dev/null || true
+        mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true
+    fi
+    [ -f /proc/sys/fs/binfmt_misc/status ] \
+        || die "binfmt_misc is not available; run the container with --privileged"
 
-if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ] \
-        && command -v update-binfmts >/dev/null 2>&1; then
-    update-binfmts --enable qemu-aarch64 >/dev/null 2>&1 || true
+    if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ] \
+            && command -v update-binfmts >/dev/null 2>&1; then
+        update-binfmts --enable qemu-aarch64 >/dev/null 2>&1 || true
+    fi
+    if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ] \
+            && [ -r /usr/lib/binfmt.d/qemu-aarch64.conf ]; then
+        cat /usr/lib/binfmt.d/qemu-aarch64.conf \
+            > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
+    fi
+    [ -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ] \
+        || die "could not register the qemu-aarch64 binfmt handler"
 fi
-if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ] \
-        && [ -r /usr/lib/binfmt.d/qemu-aarch64.conf ]; then
-    cat /usr/lib/binfmt.d/qemu-aarch64.conf \
-        > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
-fi
-[ -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ] \
-    || die "could not register the qemu-aarch64 binfmt handler"
 
 log "Downloading Raspberry Pi OS Lite 64-bit Bookworm"
 if [ ! -s "$IMAGE_FILE" ]; then
@@ -144,14 +176,25 @@ mount "$BOOT_PART" "$ROOT_MNT/boot/firmware"
 ROOT_PARTUUID="$(blkid -s PARTUUID -o value "$ROOT_PART")"
 [ -n "$ROOT_PARTUUID" ] || die "could not read root PARTUUID"
 
-log "Installing boot configuration"
+log "Installing boot configuration ($IMAGE_VARIANT)"
 if [ -f "$ROOT_MNT/boot/firmware/config.txt" ]; then
     cp -a "$ROOT_MNT/boot/firmware/config.txt" "$ROOT_MNT/boot/firmware/config.txt.orig"
 fi
 if [ -f "$ROOT_MNT/boot/firmware/cmdline.txt" ]; then
     cp -a "$ROOT_MNT/boot/firmware/cmdline.txt" "$ROOT_MNT/boot/firmware/cmdline.txt.orig"
 fi
-install -m 0644 "$CONFIG_DIR/config.txt" "$ROOT_MNT/boot/firmware/config.txt"
+if [ "$IMAGE_VARIANT" = "debug" ]; then
+    # Keep one source of truth for the hardware configuration.  The debug
+    # image is identical except that the WLAN function is not disabled.
+    DEBUG_CONFIG_TXT="$WORK_DIR/config.txt.debug"
+    sed -E '/^[[:space:]]*dtoverlay=disable-wifi[[:space:]]*$/d' \
+        "$CONFIG_DIR/config.txt" > "$DEBUG_CONFIG_TXT"
+    printf '\n# DEBUG BUILD: Wi-Fi is enabled for SSH access.  Do not ship.\n' \
+        >> "$DEBUG_CONFIG_TXT"
+    install -m 0644 "$DEBUG_CONFIG_TXT" "$ROOT_MNT/boot/firmware/config.txt"
+else
+    install -m 0644 "$CONFIG_DIR/config.txt" "$ROOT_MNT/boot/firmware/config.txt"
+fi
 sed "s/__ROOT_PARTUUID__/$ROOT_PARTUUID/g" \
     "$CONFIG_DIR/cmdline.txt" > "$ROOT_MNT/boot/firmware/cmdline.txt"
 
@@ -164,15 +207,38 @@ install -m 0755 "$REPO_ROOT/supervise.sh" "$ROOT_MNT/tmp/zebra-src/"
 install -m 0644 "$REPO_ROOT/zebra-bridge.conf.example" "$ROOT_MNT/tmp/zebra-src/"
 install -m 0644 "$REPO_ROOT/99-zebra-printer.rules" "$ROOT_MNT/tmp/zebra-src/"
 install -m 0644 "$REPO_ROOT/systemd/zebra-bridge.service" "$ROOT_MNT/tmp/zebra-src/systemd/"
-install -m 0644 "$CONFIG_DIR/blacklist-appliance.conf" "$ROOT_MNT/tmp/zebra-config/"
+if [ "$IMAGE_VARIANT" = "debug" ]; then
+    # The debug image must load the brcmfmac Wi-Fi stack, so drop only the
+    # three WLAN blacklist lines from the appliance configuration.
+    sed -E '/^[[:space:]]*blacklist[[:space:]]+(brcmfmac|brcmutil|cfg80211)[[:space:]]*$/d' \
+        "$CONFIG_DIR/blacklist-appliance.conf" \
+        > "$ROOT_MNT/tmp/zebra-config/blacklist-appliance.conf"
+    printf '\n# DEBUG BUILD: Wi-Fi modules are intentionally loadable.\n' \
+        >> "$ROOT_MNT/tmp/zebra-config/blacklist-appliance.conf"
+    chmod 0644 "$ROOT_MNT/tmp/zebra-config/blacklist-appliance.conf"
+else
+    install -m 0644 "$CONFIG_DIR/blacklist-appliance.conf" "$ROOT_MNT/tmp/zebra-config/"
+fi
 install -m 0644 "$CONFIG_DIR/journald-volatile.conf" "$ROOT_MNT/tmp/zebra-config/"
 install -m 0644 "$CONFIG_DIR/watchdog.conf" "$ROOT_MNT/tmp/zebra-config/"
 install -m 0644 "$CONFIG_DIR/bluetooth-main.conf" "$ROOT_MNT/tmp/zebra-config/"
 install -m 0644 "$CONFIG_DIR/modules-load.conf" "$ROOT_MNT/tmp/zebra-config/"
+if [ "$IMAGE_VARIANT" = "debug" ]; then
+    install -m 0644 "$CONFIG_DIR/debug-boot.conf" \
+        "$ROOT_MNT/tmp/zebra-config/zebra-bridge-debug.conf"
+    install -m 0755 "$CONFIG_DIR/debug-boot.py" \
+        "$ROOT_MNT/tmp/zebra-config/zebra-bridge-debug-boot.py"
+    install -m 0644 "$CONFIG_DIR/debug-network.service" "$ROOT_MNT/tmp/zebra-config/"
+    install -m 0644 "$CONFIG_DIR/journald-persistent.conf" "$ROOT_MNT/tmp/zebra-config/"
+    install -m 0644 "$CONFIG_DIR/NetworkManager-debug.conf" "$ROOT_MNT/tmp/zebra-config/"
+    install -m 0644 "$CONFIG_DIR/ssh-debug.conf" "$ROOT_MNT/tmp/zebra-config/"
+fi
 install -m 0755 "$SCRIPT_DIR/provision.sh" "$ROOT_MNT/tmp/provision.sh"
 
 log "Preparing chroot"
-install -m 0755 /usr/bin/qemu-aarch64-static "$ROOT_MNT/usr/bin/qemu-aarch64-static"
+if [ "$NEED_QEMU" -eq 1 ]; then
+    install -m 0755 /usr/bin/qemu-aarch64-static "$ROOT_MNT/usr/bin/qemu-aarch64-static"
+fi
 rm -f "$RESOLV_BAK"
 cp -a "$ROOT_MNT/etc/resolv.conf" "$RESOLV_BAK"
 rm -f "$ROOT_MNT/etc/resolv.conf"
@@ -192,6 +258,13 @@ log "Provisioning (this takes several minutes under qemu)"
 chroot "$ROOT_MNT" /usr/bin/env \
     DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
+    IMAGE_VARIANT="$IMAGE_VARIANT" \
+    DEBUG_WIFI_SSID="${DEBUG_WIFI_SSID:-}" \
+    DEBUG_WIFI_PASSWORD="${DEBUG_WIFI_PASSWORD:-}" \
+    DEBUG_WIFI_COUNTRY="${DEBUG_WIFI_COUNTRY:-}" \
+    DEBUG_SSH_USER="${DEBUG_SSH_USER:-}" \
+    DEBUG_SSH_PASSWORD="${DEBUG_SSH_PASSWORD:-}" \
+    DEBUG_SSH_AUTHORIZED_KEY="${DEBUG_SSH_AUTHORIZED_KEY:-}" \
     /bin/bash /tmp/provision.sh
 
 log "Cleaning up chroot"
