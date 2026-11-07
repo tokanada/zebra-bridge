@@ -103,9 +103,26 @@ for _n in 0 1 2 3 4 5 6 7; do
 done
 LOOP_DEV="$(losetup --find --show --partscan "$RAW_IMAGE")" || die \
     "losetup failed; load the loop module on the host (sudo modprobe loop) and pass --privileged"
+LOOP_NAME="${LOOP_DEV##*/}"
 partx -u "$LOOP_DEV" >/dev/null 2>&1 || true
+
+# A container's /dev is a private tmpfs, so the kernel's devtmpfs partition
+# nodes (loop0p1, loop0p2) do not appear there.  Create them from the sysfs
+# major:minor numbers, which are visible even when /dev is isolated.
 for _ in $(seq 1 50); do
-    [ -b "${LOOP_DEV}p2" ] && break
+    _ready=1
+    for _part in p1 p2; do
+        _node="${LOOP_DEV}${_part}"
+        if [ ! -b "$_node" ]; then
+            _sysdev="/sys/block/${LOOP_NAME}/${LOOP_NAME}${_part}/dev"
+            if [ -r "$_sysdev" ]; then
+                IFS=: read -r _major _minor < "$_sysdev"
+                mknod "$_node" b "$_major" "$_minor" 2>/dev/null || true
+            fi
+        fi
+        [ -b "$_node" ] || _ready=0
+    done
+    [ "$_ready" -eq 1 ] && break
     sleep 0.2
 done
 ROOT_PART="${LOOP_DEV}p2"
