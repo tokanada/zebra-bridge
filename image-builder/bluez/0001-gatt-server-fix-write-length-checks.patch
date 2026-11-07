@@ -1,0 +1,29 @@
+Description: Fix not allowing valid ATT attribute writes
+ BlueZ 5.66 src/shared/gatt-server.c passes the full ATT PDU length,
+ including the 2-byte handle (and the 2-byte offset for prepare writes),
+ to check_length(). Legal 512-byte writes are therefore rejected with
+ Invalid Attribute Value Length. Subtract the protocol header bytes so
+ the length check applies to the attribute value only.
+Origin: upstream commit 8bf3a4a265
+Last-Update: 2026-11-07
+
+--- a/src/shared/gatt-server.c
++++ b/src/shared/gatt-server.c
+@@ -845,7 +845,7 @@
+ 	DBG(server, "Write %s - handle: 0x%04x",
+ 		(opcode == BT_ATT_OP_WRITE_REQ) ? "Req" : "Cmd", handle);
+ 
+-	ecode = check_length(length, 0);
++	ecode = check_length(length - 2, 0);
+ 	if (ecode)
+ 		goto error;
+ 
+@@ -1332,7 +1332,7 @@
+ 
+ 	DBG(server, "Prep Write Req - handle: 0x%04x", handle);
+ 
+-	ecode = check_length(length, offset);
++	ecode = check_length(length - 4, offset);
+ 	if (ecode)
+ 		goto error;
+ 
