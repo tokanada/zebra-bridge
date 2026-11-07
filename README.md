@@ -32,6 +32,7 @@ are in [`docs/zebrapi_runbook.md`](docs/zebrapi_runbook.md).
 | `image-builder/verify-image.py` | Root-free post-build inspection of the `.img` |
 | `image-builder/provision.sh` | Runs inside the arm64 image chroot |
 | `image-builder/config/` | Boot, kernel, BlueZ, journald, and watchdog templates |
+| `image-builder/config/debug-*` | Temporary debug-image Wi-Fi/SSH bootstrap |
 | `tests/test_config_loading.py` | BOM/CRLF/priority tests for the config parser |
 
 ## Build the appliance image
@@ -46,10 +47,15 @@ dist/zebra-bridge-pi-zero2w.img
 dist/zebra-bridge-pi-zero2w.img.sha256
 ```
 
+The image installs a patched BlueZ package: `image-builder/bluez/build-bluez-deb.sh`
+builds it into `dist/bluez/` using an arm64 Docker container, and
+`build-image.sh` stops if that package is missing.
+
 ```bash
 git clone https://github.com/tokanada/zebra-bridge.git
 cd zebra-bridge
 
+image-builder/bluez/build-bluez-deb.sh
 docker build -t zebra-bridge-image -f image-builder/Dockerfile .
 mkdir -p dist
 docker run --rm --privileged \
@@ -84,7 +90,9 @@ Bluetooth, watchdog, or service assertion fails.
 
 To build without Docker, run the same script as root on an x86_64 Linux host
 with `qemu-user-static`, `binfmt-support`, `util-linux`, `dosfstools`,
-`e2fsprogs`, `xz-utils`, and `curl` installed:
+`e2fsprogs`, `xz-utils`, and `curl` installed. The patched package must
+already exist in `dist/bluez/` (built with that script on any host with
+Docker):
 
 ```bash
 sudo RPI_IMAGE_URL=... RPI_IMAGE_SHA256=... image-builder/build-image.sh
@@ -92,6 +100,66 @@ sudo RPI_IMAGE_URL=... RPI_IMAGE_SHA256=... image-builder/build-image.sh
 
 The uncompressed build needs roughly 6 GB of free space in `WORK_DIR`
 (default `/tmp/zebra-bridge-image`).
+
+## Temporary debug image (Wi-Fi + SSH)
+
+The debug image is the same bridge, but with the Wi-Fi stack, NetworkManager,
+SSH, Avahi, a writable root filesystem, persistent journal, and `DEBUG` bridge
+logging enabled. **Do not ship it.** Build it with `IMAGE_VARIANT=debug`:
+
+```bash
+docker build -t zebra-bridge-image -f image-builder/Dockerfile .
+mkdir -p dist
+docker run --rm --privileged \
+    -v "$PWD/dist:/work/repo/dist" \
+    -e IMAGE_VARIANT=debug \
+    -e DEBUG_WIFI_SSID="MyNetwork" \
+    -e DEBUG_WIFI_PASSWORD="throw-away-password" \
+    -e DEBUG_WIFI_COUNTRY=US \
+    -e DEBUG_SSH_USER=zebra \
+    -e DEBUG_SSH_PASSWORD="change-me" \
+    zebra-bridge-image
+```
+
+That writes `dist/zebra-bridge-pi-zero2w-debug.img` (+ `.sha256`). The
+`DEBUG_*` variables are optional; without them the credentials come from the
+bootfs file below. Flash the debug image exactly like the release image.
+
+After flashing, mount the FAT32 bootfs and edit
+`zebra-bridge-debug.conf`. It is read on every boot and creates the Wi-Fi
+profile and SSH account:
+
+```ini
+[debug]
+wifi_ssid = MyNetwork
+wifi_password = throw-away-password
+wifi_country = US
+wifi_hidden = false
+
+ssh_user = zebra
+ssh_password = change-me
+ssh_authorized_key =
+```
+
+The file is plain text on the SD card, and password login is enabled: use a
+throw-away Wi-Fi password, change the SSH password, and put the Pi only on a
+trusted network. Boot the Pi, then connect with `ssh zebra@zebra-bridge-debug.local`
+(or its DHCP address). Useful commands:
+
+```bash
+systemctl status zebra-bridge zebra-bridge-debug-network
+journalctl -u zebra-bridge -b --no-pager
+journalctl -u zebra-bridge-debug-network -b --no-pager
+lsusb
+ls -l /dev/usb/lp*
+dmesg | grep -i -E 'usb|usblp|brcmfmac'
+```
+
+Verify the image before flashing:
+
+```bash
+python3 image-builder/verify-image.py dist/zebra-bridge-pi-zero2w-debug.img
+```
 
 ## Flash and configure the SD card
 
@@ -183,6 +251,14 @@ sudo udevadm trigger
 ```
 
 ### BlueZ configuration
+
+Stock BlueZ 5.66 rejects 512-byte GATT writes with "Invalid Attribute Value
+Length (0x0d)", so jobs longer than one chunk don't print. Images include a
+patched package held with `apt-mark` (upstream fix: BlueZ commit 8bf3a4a265,
+included from BlueZ 5.70). For a manual install on an existing Pi, build the
+package, copy it over, and run
+`sudo apt install ./bluez_5.66-1+rpt2+deb12u2+zebra1_arm64.deb` then
+`sudo apt-mark hold bluez`.
 
 On a peripheral-only bridge, reverse service discovery can make iOS
 disconnect. Set this in `/etc/bluetooth/main.conf`:
