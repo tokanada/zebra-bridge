@@ -69,6 +69,18 @@ if is_debug; then
 fi
 apt-get install -y --no-install-recommends "${PACKAGES[@]}"
 
+# Stock BlueZ 5.66 rejects 512-byte GATT writes, so label jobs longer than one
+# chunk are dropped.  Install and hold the patched package (see image-builder/bluez/).
+log "Installing patched BlueZ"
+BLUEZ_PATCHED_VERSION="5.66-1+rpt2+deb12u2+zebra1"
+apt-get install -y --no-install-recommends --allow-downgrades "$CFG/bluez-patched.deb"
+installed="$(dpkg-query -W -f='${Version}' bluez)"
+if [ "$installed" != "$BLUEZ_PATCHED_VERSION" ]; then
+    echo "patched BlueZ version mismatch: installed '$installed', expected '$BLUEZ_PATCHED_VERSION'" >&2
+    exit 1
+fi
+apt-mark hold bluez
+
 # The bridge writes raw bytes to /dev/usb/lp*; usblp must not be blacklisted.
 log "Installing bridge files"
 install -d -m 0755 /opt/zebra-bridge

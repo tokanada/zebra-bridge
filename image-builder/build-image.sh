@@ -3,6 +3,7 @@
 # Zebra BLE-to-USB bridge.  Run as root on Linux, or inside the provided
 # Docker image:
 #
+#   image-builder/bluez/build-bluez-deb.sh
 #   docker build -t zebra-bridge-image -f image-builder/Dockerfile .
 #   docker run --rm --privileged \
 #       -v "$PWD/dist:/work/repo/dist" zebra-bridge-image
@@ -13,6 +14,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/config"
+BLUEZ_DEB_VERSION="5.66-1+rpt2+deb12u2+zebra1"
+BLUEZ_DEB="$REPO_ROOT/dist/bluez/bluez_${BLUEZ_DEB_VERSION}_arm64.deb"
 
 OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/dist}"
 WORK_DIR="${WORK_DIR:-/tmp/zebra-bridge-image}"
@@ -76,6 +79,7 @@ fi
 [ -f "$CONFIG_DIR/config.txt" ] || die "missing $CONFIG_DIR/config.txt"
 [ -f "$CONFIG_DIR/cmdline.txt" ] || die "missing $CONFIG_DIR/cmdline.txt"
 [ -f "$SCRIPT_DIR/provision.sh" ] || die "missing $SCRIPT_DIR/provision.sh"
+[ -f "$BLUEZ_DEB" ] || die "missing patched BlueZ package: $BLUEZ_DEB (run image-builder/bluez/build-bluez-deb.sh first)"
 if [ "$IMAGE_VARIANT" = "debug" ]; then
     for f in debug-boot.conf debug-boot.py debug-network.service \
              journald-persistent.conf NetworkManager-debug.conf ssh-debug.conf; do
@@ -223,6 +227,7 @@ install -m 0644 "$CONFIG_DIR/journald-volatile.conf" "$ROOT_MNT/tmp/zebra-config
 install -m 0644 "$CONFIG_DIR/watchdog.conf" "$ROOT_MNT/tmp/zebra-config/"
 install -m 0644 "$CONFIG_DIR/bluetooth-main.conf" "$ROOT_MNT/tmp/zebra-config/"
 install -m 0644 "$CONFIG_DIR/modules-load.conf" "$ROOT_MNT/tmp/zebra-config/"
+install -m 0644 "$BLUEZ_DEB" "$ROOT_MNT/tmp/zebra-config/bluez-patched.deb"
 if [ "$IMAGE_VARIANT" = "debug" ]; then
     install -m 0644 "$CONFIG_DIR/debug-boot.conf" \
         "$ROOT_MNT/tmp/zebra-config/zebra-bridge-debug.conf"
