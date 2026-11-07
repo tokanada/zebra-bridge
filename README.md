@@ -362,3 +362,12 @@ bluetoothctl info <address>
   Bookworm release. `config.txt` assumes the Pi Zero 2 W and the test-pad USB
   wiring; do not reuse it on a Pi 4/5 without reviewing the USB and watchdog
   settings.
+
+## License
+
+The code and image-build tooling in this repository are MIT-licensed; see
+[`LICENSE`](LICENSE).
+
+A built image also contains Raspberry Pi OS components (Debian packages,
+BlueZ, Raspberry Pi firmware, and Raspberry Pi OS scripts) that keep their own
+licenses. Review those before redistributing a built image.
