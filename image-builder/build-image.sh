@@ -92,7 +92,17 @@ rm -f "$RAW_IMAGE"
 xz -dc "$IMAGE_FILE" > "$RAW_IMAGE"
 
 log "Attaching loop device"
-LOOP_DEV="$(losetup --find --show --partscan "$RAW_IMAGE")"
+# Some container runtimes expose only a minimal /dev even with --privileged.
+# The loop module creates /dev/loop-control through devtmpfs; if the nodes are
+# missing but the host driver is present, recreate the standard ones.
+if [ ! -e /dev/loop-control ]; then
+    mknod /dev/loop-control c 10 237 2>/dev/null || true
+fi
+for _n in 0 1 2 3 4 5 6 7; do
+    [ -e "/dev/loop$_n" ] || mknod "/dev/loop$_n" b 7 "$_n" 2>/dev/null || true
+done
+LOOP_DEV="$(losetup --find --show --partscan "$RAW_IMAGE")" || die \
+    "losetup failed; load the loop module on the host (sudo modprobe loop) and pass --privileged"
 partx -u "$LOOP_DEV" >/dev/null 2>&1 || true
 for _ in $(seq 1 50); do
     [ -b "${LOOP_DEV}p2" ] && break
